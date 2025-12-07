@@ -1,0 +1,5 @@
+{
+  "name": "TrackMaster Pro",
+  "description": "A modern React dashboard to process Shopify CSV exports, generate tracking numbers via API, and manage order queues based on delivery logic.",
+  "requestFramePermissions": []
+}
