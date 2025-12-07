@@ -1,5 +1,5 @@
 
-import { API_URL, DAYS_FOR_QUEUE, DAYS_FOR_DELIVERY_WARNING } from '../constants';
+import { API_URL } from '../constants';
 import { ApiResponse, ShopifyCsvRow, TrackingResult } from '../types';
 
 // Use a CORS proxy to bypass browser restrictions since we don't have a backend server here
@@ -9,7 +9,9 @@ const BUY_API_URL = "https://api.gettnship.com/v2/tracking/buy";
 export const getTrackingForOrder = async (
   row: ShopifyCsvRow,
   limit: number = 3000,
-  apiKey: string
+  apiKey: string,
+  daysForQueue: number,
+  daysForWarning: number
 ): Promise<TrackingResult> => {
   const orderNum = row['Name'];
   const shopifyOrderId = row['Id']; // Capture the numeric ID
@@ -130,22 +132,22 @@ export const getTrackingForOrder = async (
 
       // --- LOGIC GATES ---
 
-      // 1. Queue Logic: If customer ordered less than 4 days ago -> Queue it.
-      if (daysSinceOrder < DAYS_FOR_QUEUE) {
+      // 1. Queue Logic: If customer ordered less than X days ago -> Queue it.
+      if (daysSinceOrder < daysForQueue) {
         status = 'QUEUED';
-        note = 'Order < 4 days old';
+        note = `Order < ${daysForQueue} days old`;
       } 
-      // 2. Short Delivery Logic: If expected delivery is less than 4 days from Order Date -> Queue it (previously Skipped).
-      else if (leadTimeDays < 4) {
+      // 2. Short Delivery Logic: If expected delivery is less than X days from Order Date -> Queue it.
+      else if (leadTimeDays < daysForQueue) {
         status = 'QUEUED';
-        note = `Delivery less than 4 days`;
+        note = `Delivery less than ${daysForQueue} days`;
       }
 
-      // 3. Warning Logic: If processed, check if it meets the 7-day target
-      const is7DaysFuture = leadTimeDays > DAYS_FOR_DELIVERY_WARNING;
+      // 3. Warning Logic: If processed, check if it meets the warning target
+      const is7DaysFuture = leadTimeDays > daysForWarning;
       
       if (status === 'PROCESSED' && !is7DaysFuture) {
-          note = `Delivery less than 7 days`;
+          note = `Delivery less than ${daysForWarning} days`;
       }
 
       return {

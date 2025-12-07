@@ -1,22 +1,27 @@
 
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, List, Activity, Terminal, PlayCircle, Settings, FileJson, ShoppingCart, Loader2, Send, History, Trash2, Check } from 'lucide-react';
+import { LayoutDashboard, List, Activity, Terminal, PlayCircle, Settings, FileJson, ShoppingCart, Loader2, Send, History, Trash2, Check, AlertOctagon } from 'lucide-react';
 import FileUpload from './components/FileUpload';
 import ConsoleTable from './components/ConsoleTable';
 import QueueViewer from './components/QueueViewer';
 import DetailedLogViewer from './components/DetailedLogViewer';
 import PurchasedViewer from './components/PurchasedViewer';
+import FailedViewer from './components/FailedViewer';
 import SettingsModal, { AppSettings } from './components/SettingsModal';
 import { getTrackingForOrder, buyTrackingNumber, fulfillShopifyOrder } from './services/trackingService';
-import { QueueItem, ShopifyCsvRow, TrackingResult, PurchasedItem } from './types';
+import { QueueItem, ShopifyCsvRow, TrackingResult, PurchasedItem, FailedItem } from './types';
 
 const App: React.FC = () => {
   // Application State
-  const [activeTab, setActiveTab] = useState<'console' | 'queue' | 'logs' | 'purchased'>('console');
+  const [activeTab, setActiveTab] = useState<'console' | 'queue' | 'logs' | 'purchased' | 'failed'>('console');
   const [isProcessing, setIsProcessing] = useState(false);
   const [isBuying, setIsBuying] = useState(false);
   const [isFulfilling, setIsFulfilling] = useState(false);
+  
+  // Unified Progress State
   const [progress, setProgress] = useState(0);
+  const [progressLabel, setProgressLabel] = useState('');
+
   const [logs, setLogs] = useState<string[]>([]);
   const [showSettings, setShowSettings] = useState(false);
   
@@ -24,6 +29,16 @@ const App: React.FC = () => {
   const [apiLimit, setApiLimit] = useState<number>(() => {
     const saved = localStorage.getItem('trackmaster_api_limit');
     return saved ? Number(saved) : 3000;
+  });
+
+  const [daysForQueue, setDaysForQueue] = useState<number>(() => {
+      const saved = localStorage.getItem('trackmaster_days_queue');
+      return saved ? Number(saved) : 4;
+  });
+
+  const [daysForWarning, setDaysForWarning] = useState<number>(() => {
+      const saved = localStorage.getItem('trackmaster_days_warning');
+      return saved ? Number(saved) : 7;
   });
 
   const [settings, setSettings] = useState<AppSettings>(() => {
@@ -49,6 +64,11 @@ const App: React.FC = () => {
     return saved ? JSON.parse(saved) : [];
   });
 
+  const [failedItems, setFailedItems] = useState<FailedItem[]>(() => {
+      const saved = localStorage.getItem('trackmaster_failed');
+      return saved ? JSON.parse(saved) : [];
+  });
+
   // Derived state for the console view
   const consoleData = processedResults.filter(r => r.status !== 'QUEUED');
 
@@ -62,8 +82,20 @@ const App: React.FC = () => {
   }, [purchasedHistory]);
 
   useEffect(() => {
+    localStorage.setItem('trackmaster_failed', JSON.stringify(failedItems));
+  }, [failedItems]);
+
+  useEffect(() => {
     localStorage.setItem('trackmaster_api_limit', String(apiLimit));
   }, [apiLimit]);
+
+  useEffect(() => {
+      localStorage.setItem('trackmaster_days_queue', String(daysForQueue));
+  }, [daysForQueue]);
+
+  useEffect(() => {
+      localStorage.setItem('trackmaster_days_warning', String(daysForWarning));
+  }, [daysForWarning]);
 
   useEffect(() => {
     localStorage.setItem('trackmaster_settings', JSON.stringify(settings));
@@ -121,14 +153,18 @@ const App: React.FC = () => {
       }
 
       setIsBuying(true);
+      setProgress(0);
+      setProgressLabel("Buying Tracking Numbers...");
       addLog(`Initiating purchase for ${selectedOrders.size} orders...`);
 
       const updatedResults = [...processedResults];
       let successCount = 0;
       let failCount = 0;
       const newPurchases: PurchasedItem[] = [];
+      const newFailures: FailedItem[] = [];
 
-      for (const orderNum of ordersToBuy) {
+      for (let i = 0; i < ordersToBuy.length; i++) {
+          const orderNum = ordersToBuy[i];
           const idx = updatedResults.findIndex(r => r.orderNumber === orderNum);
           if (idx === -1) continue;
 
@@ -171,15 +207,24 @@ const App: React.FC = () => {
               addLog(`Order ${orderNum}: Purchased! ${fullTracking}`);
               successCount++;
           } catch (err) {
-              addLog(`Order ${orderNum} Failed: ${(err as Error).message}`);
+              const errMsg = (err as Error).message;
+              addLog(`Order ${orderNum} Failed: ${errMsg}`);
+              newFailures.push({
+                  orderNumber: orderNum,
+                  reason: `Purchase Error: ${errMsg}`,
+                  stage: 'BUYING',
+                  failedAt: new Date().toISOString()
+              });
               failCount++;
           }
 
           setProcessedResults([...updatedResults]);
+          setProgress(Math.round(((i + 1) / ordersToBuy.length) * 100));
           await new Promise(r => setTimeout(r, 200));
       }
 
       setPurchasedHistory(prev => [...prev, ...newPurchases]);
+      setFailedItems(prev => [...prev, ...newFailures]);
       setIsBuying(false);
       addLog(`Purchase complete. Success: ${successCount}, Failed: ${failCount}`);
   };
@@ -196,12 +241,16 @@ const App: React.FC = () => {
     }
 
     setIsFulfilling(true);
+    setProgress(0);
+    setProgressLabel("Fulfilling Orders on Shopify...");
     addLog(`Initiating Fulfillment for ${selectedOrders.size} orders...`);
 
     let successCount = 0;
     let failCount = 0;
+    const newFailures: FailedItem[] = [];
 
-    for (const orderNum of ordersToFulfill) {
+    for (let i = 0; i < ordersToFulfill.length; i++) {
+        const orderNum = ordersToFulfill[i];
         const item = processedResults.find(r => r.orderNumber === orderNum);
         
         if (!item) continue;
@@ -228,13 +277,22 @@ const App: React.FC = () => {
             addLog(`Order ${orderNum}: Fulfilled on Shopify!`);
             successCount++;
         } catch (err) {
-            addLog(`Order ${orderNum} Fulfillment Failed: ${(err as Error).message}`);
+            const errMsg = (err as Error).message;
+            addLog(`Order ${orderNum} Fulfillment Failed: ${errMsg}`);
+            newFailures.push({
+                  orderNumber: orderNum,
+                  reason: `Fulfillment Error: ${errMsg}`,
+                  stage: 'FULFILLMENT',
+                  failedAt: new Date().toISOString()
+            });
             failCount++;
         }
 
+        setProgress(Math.round(((i + 1) / ordersToFulfill.length) * 100));
         await new Promise(r => setTimeout(r, 500));
     }
 
+    setFailedItems(prev => [...prev, ...newFailures]);
     setIsFulfilling(false);
     addLog(`Fulfillment complete. Success: ${successCount}, Failed: ${failCount}`);
   };
@@ -270,13 +328,15 @@ const App: React.FC = () => {
 
     // --- 2. START PROCESSING ---
     setIsProcessing(true);
+    setProgress(0);
+    setProgressLabel("Processing CSV Rows...");
     setProcessedResults([]); 
     setSelectedOrders(new Set());
-    setProgress(0);
     addLog(`Found ${rowsToProcess.length} unique orders from ${rawRows.length} CSV rows.`);
     
     let completed = 0;
     const newQueueItems: QueueItem[] = [];
+    const newFailures: FailedItem[] = [];
     
     const CHUNK_SIZE = 5;
     
@@ -308,7 +368,7 @@ const App: React.FC = () => {
          }
 
          // If not in history, call API
-         const result = await getTrackingForOrder(row, apiLimit, settings.apiKey);
+         const result = await getTrackingForOrder(row, apiLimit, settings.apiKey, daysForQueue, daysForWarning);
          return result;
       });
 
@@ -332,7 +392,15 @@ const App: React.FC = () => {
                 addLog(`Order ${res.orderNumber} -> Processed successfully`);
             }
         } else {
-            if (res.status === 'ERROR') addLog(`Order ${res.orderNumber} -> Error: ${res.note}`);
+            if (res.status === 'ERROR') {
+                addLog(`Order ${res.orderNumber} -> Error: ${res.note}`);
+                newFailures.push({
+                    orderNumber: res.orderNumber,
+                    reason: res.note || "Unknown API Error",
+                    stage: 'PROCESSING',
+                    failedAt: new Date().toISOString()
+                });
+            }
             if (res.status === 'SKIPPED') addLog(`Order ${res.orderNumber} -> Skipped: ${res.note}`);
         }
       }
@@ -344,9 +412,13 @@ const App: React.FC = () => {
     }
 
     setQueue(prev => [...prev, ...newQueueItems]);
+    setFailedItems(prev => [...prev, ...newFailures]);
     setIsProcessing(false);
     addLog(`Finished processing.`);
   };
+
+  const isAnyLoading = isProcessing || isBuying || isFulfilling;
+  const loadingColor = isBuying ? 'bg-orange-500' : isFulfilling ? 'bg-blue-500' : 'bg-primary';
 
   return (
     <div className="min-h-screen bg-background text-gray-300 font-sans selection:bg-primary/20 selection:text-primary">
@@ -370,16 +442,22 @@ const App: React.FC = () => {
 
       <main className="max-w-7xl mx-auto px-6 py-8">
         
-        {/* Processing Status Bar */}
-        {isProcessing && (
-          <div className="mb-8 p-4 bg-surface border border-primary/30 rounded-lg relative overflow-hidden">
-             <div className="absolute top-0 left-0 h-1 bg-primary transition-all duration-300" style={{ width: `${progress}%` }}></div>
+        {/* Unified Processing Status Bar */}
+        {isAnyLoading && (
+          <div className="mb-8 p-4 bg-surface border border-white/10 rounded-lg relative overflow-hidden">
+             <div className={`absolute top-0 left-0 h-1 ${loadingColor} transition-all duration-300`} style={{ width: `${progress}%` }}></div>
              <div className="flex justify-between items-center relative z-10">
                 <div className="flex items-center gap-3">
-                   <PlayCircle className="w-5 h-5 text-primary animate-pulse" />
-                   <span className="text-white font-medium">Processing Orders...</span>
+                   {isBuying ? (
+                       <ShoppingCart className="w-5 h-5 text-orange-500 animate-pulse" />
+                   ) : isFulfilling ? (
+                       <Send className="w-5 h-5 text-blue-500 animate-pulse" />
+                   ) : (
+                       <PlayCircle className="w-5 h-5 text-primary animate-pulse" />
+                   )}
+                   <span className="text-white font-medium">{progressLabel}</span>
                 </div>
-                <span className="font-mono text-primary">{progress}%</span>
+                <span className="font-mono text-white">{progress}%</span>
              </div>
           </div>
         )}
@@ -388,7 +466,7 @@ const App: React.FC = () => {
             
             {/* Sidebar / Controls */}
             <div className="lg:col-span-1 space-y-6">
-                <FileUpload onDataLoaded={handleDataLoaded} disabled={isProcessing} />
+                <FileUpload onDataLoaded={handleDataLoaded} disabled={isAnyLoading} />
                 
                 {/* Configuration Input */}
                 <div className="bg-surface border border-border rounded-lg p-4 space-y-4">
@@ -409,9 +487,45 @@ const App: React.FC = () => {
                             value={apiLimit}
                             onChange={(e) => setApiLimit(Number(e.target.value))}
                             className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-white focus:border-primary focus:outline-none transition-colors font-mono placeholder-gray-600"
-                            disabled={isProcessing}
-                            placeholder="Default: 3000"
+                            disabled={isAnyLoading}
+                            placeholder="3000"
                         />
+                    </div>
+
+                    <div>
+                        <div className="flex justify-between items-center mb-1">
+                             <label className="block text-xs text-gray-500">Min Days (Queue)</label>
+                             <span className="text-[10px] text-green-500 flex items-center gap-1">
+                                <Check className="w-3 h-3" /> Saved
+                             </span>
+                        </div>
+                        <input 
+                            type="number" 
+                            value={daysForQueue}
+                            onChange={(e) => setDaysForQueue(Number(e.target.value))}
+                            className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-white focus:border-primary focus:outline-none transition-colors font-mono placeholder-gray-600"
+                            disabled={isAnyLoading}
+                            placeholder="4"
+                        />
+                         <p className="text-[10px] text-gray-600 mt-1">Orders newer than this go to queue.</p>
+                    </div>
+
+                    <div>
+                        <div className="flex justify-between items-center mb-1">
+                             <label className="block text-xs text-gray-500">Warning Days</label>
+                             <span className="text-[10px] text-green-500 flex items-center gap-1">
+                                <Check className="w-3 h-3" /> Saved
+                             </span>
+                        </div>
+                        <input 
+                            type="number" 
+                            value={daysForWarning}
+                            onChange={(e) => setDaysForWarning(Number(e.target.value))}
+                            className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-white focus:border-primary focus:outline-none transition-colors font-mono placeholder-gray-600"
+                            disabled={isAnyLoading}
+                            placeholder="7"
+                        />
+                         <p className="text-[10px] text-gray-600 mt-1">Warn if delivery is sooner than this.</p>
                     </div>
 
                     <button 
@@ -445,7 +559,7 @@ const App: React.FC = () => {
                 
                 {/* Tabs & Actions */}
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                    <div className="flex items-center gap-1 bg-surface p-1 rounded-lg border border-border w-fit overflow-x-auto">
+                    <div className="flex items-center gap-1 bg-surface p-1 rounded-lg border border-border w-fit overflow-x-auto max-w-full">
                         <button 
                             onClick={() => setActiveTab('console')}
                             className={`
@@ -472,17 +586,7 @@ const App: React.FC = () => {
                                 <span className="bg-primary/20 text-primary text-[10px] px-1.5 rounded-full">{queue.length}</span>
                             )}
                         </button>
-                        <button 
-                            onClick={() => setActiveTab('logs')}
-                            className={`
-                                flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap
-                                ${activeTab === 'logs' ? 'bg-background text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}
-                            `}
-                        >
-                            <FileJson className="w-4 h-4" />
-                            Logs
-                        </button>
-                        <button 
+                         <button 
                             onClick={() => setActiveTab('purchased')}
                             className={`
                                 flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap
@@ -494,6 +598,29 @@ const App: React.FC = () => {
                             {purchasedHistory.length > 0 && (
                                 <span className="bg-green-900/40 text-green-400 text-[10px] px-1.5 rounded-full">{purchasedHistory.length}</span>
                             )}
+                        </button>
+                        <button 
+                            onClick={() => setActiveTab('failed')}
+                            className={`
+                                flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap
+                                ${activeTab === 'failed' ? 'bg-background text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}
+                            `}
+                        >
+                            <AlertOctagon className="w-4 h-4" />
+                            Failed
+                            {failedItems.length > 0 && (
+                                <span className="bg-red-900/40 text-red-400 text-[10px] px-1.5 rounded-full">{failedItems.length}</span>
+                            )}
+                        </button>
+                        <button 
+                            onClick={() => setActiveTab('logs')}
+                            className={`
+                                flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap
+                                ${activeTab === 'logs' ? 'bg-background text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}
+                            `}
+                        >
+                            <FileJson className="w-4 h-4" />
+                            Logs
                         </button>
                     </div>
 
@@ -510,10 +637,10 @@ const App: React.FC = () => {
 
                             <button 
                                 onClick={handleBuyTracking}
-                                disabled={selectedOrders.size === 0 || isBuying || isFulfilling}
+                                disabled={selectedOrders.size === 0 || isAnyLoading}
                                 className={`
                                     flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all border
-                                    ${selectedOrders.size > 0 && !isBuying && !isFulfilling
+                                    ${selectedOrders.size > 0 && !isAnyLoading
                                         ? 'bg-primary text-white border-primary hover:bg-primaryHover cursor-pointer shadow-lg shadow-primary/20' 
                                         : 'bg-transparent text-gray-600 border-border cursor-not-allowed'}
                                 `}
@@ -538,10 +665,10 @@ const App: React.FC = () => {
 
                             <button 
                                 onClick={handleFulfillOrders}
-                                disabled={selectedOrders.size === 0 || isBuying || isFulfilling}
+                                disabled={selectedOrders.size === 0 || isAnyLoading}
                                 className={`
                                     flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all border
-                                    ${selectedOrders.size > 0 && !isBuying && !isFulfilling
+                                    ${selectedOrders.size > 0 && !isAnyLoading
                                         ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-500 cursor-pointer shadow-lg shadow-blue-600/20' 
                                         : 'bg-transparent text-gray-600 border-border cursor-not-allowed'}
                                 `}
@@ -575,6 +702,8 @@ const App: React.FC = () => {
                         <QueueViewer queue={queue} />
                     ) : activeTab === 'purchased' ? (
                         <PurchasedViewer history={purchasedHistory} />
+                    ) : activeTab === 'failed' ? (
+                        <FailedViewer failedItems={failedItems} onClear={() => setFailedItems([])} />
                     ) : (
                         <DetailedLogViewer results={processedResults} />
                     )}

@@ -40,6 +40,13 @@ export interface PurchasedItem {
   purchasedAt: string;
 }
 
+export interface FailedItem {
+  orderNumber: string;
+  reason: string;
+  stage: 'PROCESSING' | 'BUYING' | 'FULFILLMENT';
+  failedAt: string;
+}
+
 export interface ApiResponse {
   data?: {
     data?: Array<{
