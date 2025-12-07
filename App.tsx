@@ -25,29 +25,52 @@ const App: React.FC = () => {
   const [logs, setLogs] = useState<string[]>([]);
   const [showSettings, setShowSettings] = useState(false);
   
-  // Persisted Config
+  // Persisted Config (Safeguarded)
   const [apiLimit, setApiLimit] = useState<number>(() => {
-    const saved = localStorage.getItem('trackmaster_api_limit');
-    return saved ? Number(saved) : 3000;
+    try {
+      const saved = localStorage.getItem('trackmaster_api_limit');
+      return saved ? Number(saved) : 3000;
+    } catch (e) {
+      console.error("Failed to load api_limit", e);
+      return 3000;
+    }
   });
 
   const [daysForQueue, setDaysForQueue] = useState<number>(() => {
+    try {
       const saved = localStorage.getItem('trackmaster_days_queue');
       return saved ? Number(saved) : 4;
+    } catch (e) {
+      console.error("Failed to load days_queue", e);
+      return 4;
+    }
   });
 
   const [daysForWarning, setDaysForWarning] = useState<number>(() => {
+    try {
       const saved = localStorage.getItem('trackmaster_days_warning');
       return saved ? Number(saved) : 7;
+    } catch (e) {
+      console.error("Failed to load days_warning", e);
+      return 7;
+    }
   });
 
   const [settings, setSettings] = useState<AppSettings>(() => {
+    try {
       const saved = localStorage.getItem('trackmaster_settings');
-      return saved ? JSON.parse(saved) : {
-          apiKey: "",
-          shopifyDomain: "",
-          shopifyToken: ""
+      if (!saved) return { apiKey: "", shopifyDomain: "", shopifyToken: "" };
+      const parsed = JSON.parse(saved);
+      // Ensure shape is correct
+      return {
+          apiKey: parsed.apiKey || "",
+          shopifyDomain: parsed.shopifyDomain || "",
+          shopifyToken: parsed.shopifyToken || ""
       };
+    } catch (e) {
+      console.error("Failed to load settings", e);
+      return { apiKey: "", shopifyDomain: "", shopifyToken: "" };
+    }
   });
   
   // Data State
@@ -55,18 +78,36 @@ const App: React.FC = () => {
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
   
   const [queue, setQueue] = useState<QueueItem[]>(() => {
-    const saved = localStorage.getItem('trackmaster_queue');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('trackmaster_queue');
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      console.error("Failed to load queue", e);
+      return [];
+    }
   });
 
   const [purchasedHistory, setPurchasedHistory] = useState<PurchasedItem[]>(() => {
-    const saved = localStorage.getItem('trackmaster_purchased');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('trackmaster_purchased');
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      console.error("Failed to load purchased history", e);
+      return [];
+    }
   });
 
   const [failedItems, setFailedItems] = useState<FailedItem[]>(() => {
+    try {
       const saved = localStorage.getItem('trackmaster_failed');
-      return saved ? JSON.parse(saved) : [];
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      console.error("Failed to load failed items", e);
+      return [];
+    }
   });
 
   // Derived state for the console view
@@ -347,7 +388,11 @@ const App: React.FC = () => {
          const orderNum = row['Name'];
          
          // CHECK PURCHASED HISTORY FIRST
-         const savedItem = purchasedHistory.find(p => p.orderNumber === orderNum);
+         // Safe check if history is array
+         const savedItem = Array.isArray(purchasedHistory) 
+            ? purchasedHistory.find(p => p.orderNumber === orderNum) 
+            : undefined;
+
          if (savedItem) {
              // Return synthetic result from local history
              const result: TrackingResult = {
