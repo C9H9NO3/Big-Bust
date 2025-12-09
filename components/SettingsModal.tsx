@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Save, Lock, Globe } from 'lucide-react';
+import { X, Save, Lock, Globe, Server } from 'lucide-react';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -13,6 +13,7 @@ export interface AppSettings {
   apiKey: string;
   shopifyDomain: string;
   shopifyToken: string;
+  corsProxyApiKey?: string;
 }
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSave, initialSettings }) => {
@@ -53,6 +54,20 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSave, 
               placeholder="Enter your API key..."
               className="w-full bg-[#09090b] border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-white focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-all placeholder-gray-600"
             />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-gray-400 uppercase tracking-wide flex items-center gap-2">
+              <Server className="w-3 h-3" /> CORS Proxy Key (Optional)
+            </label>
+            <input 
+              type="password" 
+              value={formData.corsProxyApiKey || ''}
+              onChange={(e) => setFormData(prev => ({ ...prev, corsProxyApiKey: e.target.value }))}
+              placeholder="e.g. 0cfaf0e9"
+              className="w-full bg-[#09090b] border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none transition-all placeholder-gray-600"
+            />
+            <p className="text-[9px] text-gray-500">Leave empty to use free proxy (slower/limited).</p>
           </div>
 
           <div className="border-t border-gray-800 my-4"></div>

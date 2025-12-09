@@ -2,16 +2,25 @@
 import { API_URL } from '../constants';
 import { ApiResponse, ShopifyCsvRow, TrackingResult } from '../types';
 
-// Use a CORS proxy to bypass browser restrictions since we don't have a backend server here
-const PROXY_URL = "https://corsproxy.io/?";
 const BUY_API_URL = "https://api.gettnship.com/v2/tracking/buy";
+
+// Helper to construct proxy URL dynamically based on whether a key is present
+const buildProxyUrl = (targetUrl: string, corsKey?: string) => {
+    if (corsKey && corsKey.trim().length > 0) {
+        // Paid CORS Proxy format: ?key=KEY&url=URL
+        return `https://corsproxy.io/?key=${corsKey}&url=${encodeURIComponent(targetUrl)}`;
+    }
+    // Free CORS Proxy format: ?URL (or ?url=URL depending on implementation, standard is direct append for corsproxy.io usually, but ?url= is safer)
+    return `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+};
 
 export const getTrackingForOrder = async (
   row: ShopifyCsvRow,
   limit: number = 3000,
   apiKey: string,
   daysForQueue: number,
-  daysForWarning: number
+  daysForWarning: number,
+  corsKey?: string
 ): Promise<TrackingResult> => {
   const orderNum = row['Name'];
   const shopifyOrderId = row['Id']; // Capture the numeric ID
@@ -77,7 +86,8 @@ export const getTrackingForOrder = async (
         debugPayloads.push(payload);
 
         try {
-            const response = await fetch(`${PROXY_URL}${encodeURIComponent(API_URL)}`, {
+            const proxyUrl = buildProxyUrl(API_URL, corsKey);
+            const response = await fetch(proxyUrl, {
                 method: 'POST',
                 headers: {
                     'accept': 'application/json',
@@ -137,13 +147,13 @@ export const getTrackingForOrder = async (
         status = 'QUEUED';
         note = `Order < ${daysForQueue} days old`;
       } 
-      // 2. Short Delivery Logic: If expected delivery is less than X days from Order Date -> Queue it.
+      // 2. Short Delivery Logic: If expected delivery is less than X days from Order Date -> Queue it
       else if (leadTimeDays < daysForQueue) {
         status = 'QUEUED';
         note = `Delivery less than ${daysForQueue} days`;
       }
 
-      // 3. Warning Logic: If processed, check if it meets the warning target
+      // 3. Warning Logic: If processed, check if it meets the Warning target
       const is7DaysFuture = leadTimeDays > daysForWarning;
       
       if (status === 'PROCESSED' && !is7DaysFuture) {
@@ -245,12 +255,13 @@ function findBestTracking(apiResponse: ApiResponse) {
   });
 }
 
-export const buyTrackingNumber = async (hashId: string, apiKey: string): Promise<string> => {
+export const buyTrackingNumber = async (hashId: string, apiKey: string, corsKey?: string): Promise<string> => {
     const payload = { hashid: hashId };
     try {
         if (!apiKey) throw new Error("API Key is missing in Settings");
 
-        const response = await fetch(`${PROXY_URL}${encodeURIComponent(BUY_API_URL)}`, {
+        const proxyUrl = buildProxyUrl(BUY_API_URL, corsKey);
+        const response = await fetch(proxyUrl, {
             method: 'POST',
             headers: {
                 'accept': 'application/json',
@@ -281,7 +292,8 @@ export const fulfillShopifyOrder = async (
     shopifyOrderId: string, 
     trackingNumber: string,
     shopifyDomain: string,
-    shopifyToken: string
+    shopifyToken: string,
+    corsKey?: string
 ): Promise<void> => {
     try {
         if (!shopifyDomain || !shopifyToken) {
@@ -293,8 +305,9 @@ export const fulfillShopifyOrder = async (
 
         // Step 1: Get Fulfillment Order ID
         const foUrl = `https://${domain}/admin/api/2023-10/orders/${shopifyOrderId}/fulfillment_orders.json`;
+        const foProxyUrl = buildProxyUrl(foUrl, corsKey);
         
-        const foResponse = await fetch(`${PROXY_URL}${encodeURIComponent(foUrl)}`, {
+        const foResponse = await fetch(foProxyUrl, {
             method: 'GET',
             headers: {
                 'X-Shopify-Access-Token': shopifyToken,
@@ -316,6 +329,8 @@ export const fulfillShopifyOrder = async (
 
         // Step 2: Create Fulfillment
         const fulfillUrl = `https://${domain}/admin/api/2023-10/fulfillments.json`;
+        const fulfillProxyUrl = buildProxyUrl(fulfillUrl, corsKey);
+
         const payload = {
             fulfillment: {
                 line_items_by_fulfillment_order: [
@@ -331,7 +346,7 @@ export const fulfillShopifyOrder = async (
             },
         };
 
-        const fulfillResponse = await fetch(`${PROXY_URL}${encodeURIComponent(fulfillUrl)}`, {
+        const fulfillResponse = await fetch(fulfillProxyUrl, {
             method: 'POST',
             headers: {
                 'X-Shopify-Access-Token': shopifyToken,

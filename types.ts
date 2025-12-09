@@ -42,9 +42,9 @@ export interface PurchasedItem {
 
 export interface FailedItem {
   orderNumber: string;
+  action: 'BUY' | 'FULFILL' | 'PROCESS';
   reason: string;
-  stage: 'PROCESSING' | 'BUYING' | 'FULFILLMENT';
-  failedAt: string;
+  timestamp: string;
 }
 
 export interface ApiResponse {
