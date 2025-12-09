@@ -1,6 +1,7 @@
-
 import React, { useState, useEffect } from 'react';
 import { X, Save, Lock, Globe, Server, Eye, EyeOff } from 'lucide-react';
+
+console.log("[SettingsModal.tsx] Module loaded.");
 
 interface SettingsModalProps {
   isOpen: boolean;
