@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Save, Lock, Globe, Server } from 'lucide-react';
+import { X, Save, Lock, Globe, Server, Eye, EyeOff } from 'lucide-react';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -15,6 +15,40 @@ export interface AppSettings {
   shopifyToken: string;
   corsProxyApiKey?: string;
 }
+
+const SecretInput = ({ 
+  value, 
+  onChange, 
+  placeholder,
+  className 
+}: {
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  placeholder?: string;
+  className?: string;
+}) => {
+  const [show, setShow] = useState(false);
+
+  return (
+    <div className="relative">
+      <input 
+        type={show ? "text" : "password"}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        className={`${className} pr-10`}
+      />
+      <button
+        type="button"
+        onClick={() => setShow(!show)}
+        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors focus:outline-none"
+        tabIndex={-1}
+      >
+        {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+      </button>
+    </div>
+  );
+};
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSave, initialSettings }) => {
   const [formData, setFormData] = useState<AppSettings>(initialSettings);
@@ -47,8 +81,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSave, 
             <label className="text-xs font-medium text-gray-400 uppercase tracking-wide flex items-center gap-2">
               <Lock className="w-3 h-3" /> Gettnship API Key
             </label>
-            <input 
-              type="password" 
+            <SecretInput 
               value={formData.apiKey}
               onChange={(e) => setFormData(prev => ({ ...prev, apiKey: e.target.value }))}
               placeholder="Enter your API key..."
@@ -60,8 +93,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSave, 
             <label className="text-xs font-medium text-gray-400 uppercase tracking-wide flex items-center gap-2">
               <Server className="w-3 h-3" /> CORS Proxy Key (Optional)
             </label>
-            <input 
-              type="password" 
+            <SecretInput 
               value={formData.corsProxyApiKey || ''}
               onChange={(e) => setFormData(prev => ({ ...prev, corsProxyApiKey: e.target.value }))}
               placeholder="e.g. 0cfaf0e9"
@@ -91,8 +123,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSave, 
               <label className="text-xs font-medium text-gray-400 uppercase tracking-wide flex items-center gap-2">
                 <Lock className="w-3 h-3" /> Shopify Access Token
               </label>
-              <input 
-                type="password" 
+              <SecretInput 
                 value={formData.shopifyToken}
                 onChange={(e) => setFormData(prev => ({ ...prev, shopifyToken: e.target.value }))}
                 placeholder="shpat_..."
